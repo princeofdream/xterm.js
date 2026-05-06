@@ -83,7 +83,17 @@ export class WebglRenderer extends Disposable implements IRenderer {
     const contextAttributes = {
       antialias: false,
       depth: false,
-      preserveDrawingBuffer
+      preserveDrawingBuffer,
+      // Atlas tiles are straight-alpha (Canvas 2D fillText output), and the
+      // blend func at GlyphRenderer uses (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) —
+      // also straight-alpha logic. The browser canvas compositor defaults
+      // to premultipliedAlpha:true, which interprets framebuffer pixels as
+      // already-multiplied with alpha → effectively divides RGB by alpha at
+      // display time, producing ~white halos around low-alpha glyph edges
+      // on transparent webviews (a 0.3-alpha blue edge becomes "boosted" to
+      // near-full RGB and shows as bright/white). Tell the compositor we are
+      // providing straight-alpha output so it composites without that boost.
+      premultipliedAlpha: false
     };
     this._gl = this._canvas.getContext('webgl2', contextAttributes) as IWebGL2RenderingContext;
     if (!this._gl) {
