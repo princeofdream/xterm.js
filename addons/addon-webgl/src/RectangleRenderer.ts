@@ -344,7 +344,17 @@ export class RectangleRenderer extends Disposable {
     $r = (($rgba >> 24) & 0xFF) / 255;
     $g = (($rgba >> 16) & 0xFF) / 255;
     $b = (($rgba >> 8 ) & 0xFF) / 255;
-    $a = 1;
+    // Alpha was previously hard-coded to 1, which forced default-bg cells to
+    // paint opaque even when the user's theme.background carries an alpha
+    // channel (e.g. `#00000000` for a transparent webview). Honour the
+    // theme.background alpha for the default-bg + non-inverse case so the
+    // transparent backdrop shows through; ANSI / RGB / inverse cells stay
+    // opaque (those are explicit colors and expected to cover the cell).
+    if (!(fg & FgFlags.INVERSE) && (bg & Attributes.CM_MASK) === Attributes.CM_DEFAULT) {
+      $a = (this._themeService.colors.background.rgba & 0xFF) / 255;
+    } else {
+      $a = 1;
+    }
 
     this._addRectangle(vertices.attributes, offset, $x1, $y1, (endX - startX) * this._dimensions.device.cell.width, this._dimensions.device.cell.height, $r, $g, $b, $a);
   }

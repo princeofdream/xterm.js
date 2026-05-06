@@ -736,8 +736,18 @@ export class TextureAtlas implements ITextureAtlas {
     );
 
     // Clear out the background color and determine if the glyph is empty.
+    // When `allowTransparency` is true and the cell's background is itself
+    // fully transparent (e.g. `theme.background = '#00000000'`), the atlas
+    // tile was filled with transparent pixels so there is no bg-color border
+    // to clear — and running clearColor would falsely strip glyph pixels
+    // whose RGB happens to match the bg-color (e.g. a black glyph against a
+    // transparent-black bg). For all other paths — including
+    // `allowTransparency` with an opaque bg color — run clearColor to remove
+    // the AA halo around glyphs that xterm upstream's transparency path
+    // skipped (which left a coloured halo on transparent webviews).
     let isEmpty: boolean;
-    if (!this._config.allowTransparency) {
+    const bgIsFullyTransparent = (backgroundColor.rgba & 0xFF) === 0;
+    if (!this._config.allowTransparency || !bgIsFullyTransparent) {
       isEmpty = clearColor(imageData, backgroundColor, foregroundColor, enableClearThresholdCheck);
     } else {
       isEmpty = checkCompletelyTransparent(imageData);
