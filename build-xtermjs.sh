@@ -56,6 +56,16 @@ if [[ ! -d "node_modules" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Stamp version with current commit SHA
+# ---------------------------------------------------------------------------
+# Re-stamp BEFORE the build so every package.json (root + addons) carries the
+# current commit. Downstream consumers (nshell via `file:` dep) use this version
+# string as npm's cache key — without a unique stamp, repeated builds at the
+# same base version don't invalidate nshell's node_modules copy.
+echo "[xterm.js] Stamping package.json versions with current git SHA..."
+node "$SCRIPT_DIR/scripts/stamp-version.cjs"
+
+# ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
 echo "[xterm.js] Compiling TypeScript (tsc -b)..."
