@@ -3,6 +3,7 @@
  * @license MIT
  */
 
+import { BackgroundCanvasLayer } from 'browser/renderer/dom/BackgroundCanvasLayer';
 import { DomRendererRowFactory, RowCss } from 'browser/renderer/dom/DomRendererRowFactory';
 import { WidthCache } from 'browser/renderer/dom/WidthCache';
 import { INVERTED_DEFAULT_COLOR } from 'browser/renderer/shared/Constants';
@@ -13,14 +14,13 @@ import { ICharSizeService, ICoreBrowserService, IThemeService } from 'browser/se
 import { ILinkifier2, ILinkifierEvent, ITerminal, ReadonlyColorSet } from 'browser/Types';
 import { color } from 'common/Color';
 import { Disposable, toDisposable } from 'vs/base/common/lifecycle';
-import { IBufferService, ICoreService, IInstantiationService, IOptionsService } from 'common/services/Services';
+import { IBufferService, ICoreService, IDecorationService, IInstantiationService, IOptionsService } from 'common/services/Services';
 import { Emitter } from 'vs/base/common/event';
 
 
 const TERMINAL_CLASS_PREFIX = 'xterm-dom-renderer-owner-';
 const ROW_CONTAINER_CLASS = 'xterm-rows';
 const FG_CLASS_PREFIX = 'xterm-fg-';
-const BG_CLASS_PREFIX = 'xterm-bg-';
 const FOCUS_CLASS = 'xterm-focus';
 const SELECTION_CLASS = 'xterm-selection';
 
@@ -42,6 +42,7 @@ export class DomRenderer extends Disposable implements IRenderer {
   private _selectionContainer: HTMLElement;
   private _widthCache: WidthCache;
   private _selectionRenderModel: ISelectionRenderModel = createSelectionRenderModel();
+  private _bgLayer!: BackgroundCanvasLayer;
 
   public dimensions: IRenderDimensions;
 
@@ -61,7 +62,8 @@ export class DomRenderer extends Disposable implements IRenderer {
     @IBufferService private readonly _bufferService: IBufferService,
     @ICoreService private readonly _coreService: ICoreService,
     @ICoreBrowserService private readonly _coreBrowserService: ICoreBrowserService,
-    @IThemeService private readonly _themeService: IThemeService
+    @IThemeService private readonly _themeService: IThemeService,
+    @IDecorationService private readonly _decorationService: IDecorationService
   ) {
     super();
     this._rowContainer = this._document.createElement('div');
@@ -83,6 +85,25 @@ export class DomRenderer extends Disposable implements IRenderer {
     this._rowFactory = instantiationService.createInstance(DomRendererRowFactory, document);
 
     this._element.classList.add(TERMINAL_CLASS_PREFIX + this._terminalClass);
+
+    // Canvas BG layer must be inserted into _screenElement BEFORE row / selection
+    // containers so DOM order keeps it visually behind. Construction is also
+    // gated on dimensions being valid, which `_updateDimensions()` above ensures.
+    this._bgLayer = new BackgroundCanvasLayer(
+      this._document,
+      this._screenElement,
+      () => this.dimensions,
+      () => this._handleCursorBlinkTick(),
+      this._bufferService,
+      this._coreService,
+      this._coreBrowserService,
+      this._decorationService,
+      this._optionsService,
+      this._themeService
+    );
+    this._register(this._bgLayer);
+    this._bgLayer.resize();
+
     this._screenElement.appendChild(this._rowContainer);
     this._screenElement.appendChild(this._selectionContainer);
 
@@ -151,6 +172,12 @@ export class DomRenderer extends Disposable implements IRenderer {
     this._selectionContainer.style.height = this._viewportElement.style.height;
     this._screenElement.style.width = `${this.dimensions.css.canvas.width}px`;
     this._screenElement.style.height = `${this.dimensions.css.canvas.height}px`;
+
+    // Sync canvas BG layer to new dimensions and repaint everything.
+    // Guarded with `?.` for the first call from the constructor before
+    // `_bgLayer` has been instantiated.
+    this._bgLayer?.resize();
+    this._bgLayer?.repaintAll();
   }
 
   private _injectCss(colors: ReadonlyColorSet): void {
@@ -160,7 +187,10 @@ export class DomRenderer extends Disposable implements IRenderer {
     }
 
     // Base CSS
+    // Force a stacking context on `.xterm-screen` so the canvas BG layer's
+    // `z-index: -1` stays bounded inside it instead of escaping to ancestors.
     let styles =
+      `${this._terminalSelector} .xterm-screen { isolation: isolate; }` +
       `${this._terminalSelector} .${ROW_CONTAINER_CLASS} {` +
       // Disabling pointer events circumvents a browser behavior that prevents `click` events from
       // being delivered if the target element is replaced during the click. This happened due to
@@ -188,9 +218,10 @@ export class DomRenderer extends Disposable implements IRenderer {
       ` font-style: italic;` +
       `}`;
     // Blink animation
+    // Block-cursor blink is now driven by JS (BackgroundCanvasLayer) since the
+    // cursor block fill lives on canvas; bar / underline cursors keep CSS animations.
     const blinkAnimationUnderlineId = `blink_underline_${this._terminalClass}`;
     const blinkAnimationBarId = `blink_bar_${this._terminalClass}`;
-    const blinkAnimationBlockId = `blink_block_${this._terminalClass}`;
     styles +=
       `@keyframes ${blinkAnimationUnderlineId} {` +
       ` 50% {` +
@@ -203,17 +234,6 @@ export class DomRenderer extends Disposable implements IRenderer {
       `  box-shadow: none;` +
       ` }` +
       `}`;
-    styles +=
-      `@keyframes ${blinkAnimationBlockId} {` +
-      ` 0% {` +
-      `  background-color: ${colors.cursor.css};` +
-      `  color: ${colors.cursorAccent.css};` +
-      ` }` +
-      ` 50% {` +
-      `  background-color: inherit;` +
-      `  color: ${colors.cursor.css};` +
-      ` }` +
-      `}`;
     // Cursor
     styles +=
       `${this._terminalSelector} .${ROW_CONTAINER_CLASS}.${FOCUS_CLASS} .${RowCss.CURSOR_CLASS}.${RowCss.CURSOR_BLINK_CLASS}.${RowCss.CURSOR_STYLE_UNDERLINE_CLASS} {` +
@@ -222,18 +242,13 @@ export class DomRenderer extends Disposable implements IRenderer {
       `${this._terminalSelector} .${ROW_CONTAINER_CLASS}.${FOCUS_CLASS} .${RowCss.CURSOR_CLASS}.${RowCss.CURSOR_BLINK_CLASS}.${RowCss.CURSOR_STYLE_BAR_CLASS} {` +
       ` animation: ${blinkAnimationBarId} 1s step-end infinite;` +
       `}` +
-      `${this._terminalSelector} .${ROW_CONTAINER_CLASS}.${FOCUS_CLASS} .${RowCss.CURSOR_CLASS}.${RowCss.CURSOR_BLINK_CLASS}.${RowCss.CURSOR_STYLE_BLOCK_CLASS} {` +
-      ` animation: ${blinkAnimationBlockId} 1s step-end infinite;` +
-      `}` +
-      // !important helps fix an issue where the cursor will not render on top of the selection,
-      // however it's very hard to fix this issue and retain the blink animation without the use of
-      // !important. So this edge case fails when cursor blink is on.
+      // Block cursor: only set the inverted text color. The block fill itself is painted
+      // by BackgroundCanvasLayer so adjacent same-color cells don't leave sub-pixel seams
+      // through the canvas.
       `${this._terminalSelector} .${ROW_CONTAINER_CLASS} .${RowCss.CURSOR_CLASS}.${RowCss.CURSOR_STYLE_BLOCK_CLASS} {` +
-      ` background-color: ${colors.cursor.css};` +
       ` color: ${colors.cursorAccent.css};` +
       `}` +
       `${this._terminalSelector} .${ROW_CONTAINER_CLASS} .${RowCss.CURSOR_CLASS}.${RowCss.CURSOR_STYLE_BLOCK_CLASS}:not(.${RowCss.CURSOR_BLINK_CLASS}) {` +
-      ` background-color: ${colors.cursor.css} !important;` +
       ` color: ${colors.cursorAccent.css} !important;` +
       `}` +
       `${this._terminalSelector} .${ROW_CONTAINER_CLASS} .${RowCss.CURSOR_CLASS}.${RowCss.CURSOR_STYLE_OUTLINE_CLASS} {` +
@@ -266,18 +281,23 @@ export class DomRenderer extends Disposable implements IRenderer {
       ` background-color: ${colors.selectionInactiveBackgroundOpaque.css};` +
       `}`;
     // Colors
+    // Cell BGs are painted by `BackgroundCanvasLayer`; the `.xterm-bg-N` rules
+    // are intentionally not emitted here (and the row factory no longer adds
+    // those classes). Foreground rules stay so spans render with the correct text color.
     for (const [i, c] of colors.ansi.entries()) {
       styles +=
         `${this._terminalSelector} .${FG_CLASS_PREFIX}${i} { color: ${c.css}; }` +
-        `${this._terminalSelector} .${FG_CLASS_PREFIX}${i}.${RowCss.DIM_CLASS} { color: ${color.multiplyOpacity(c, 0.5).css}; }` +
-        `${this._terminalSelector} .${BG_CLASS_PREFIX}${i} { background-color: ${c.css}; }`;
+        `${this._terminalSelector} .${FG_CLASS_PREFIX}${i}.${RowCss.DIM_CLASS} { color: ${color.multiplyOpacity(c, 0.5).css}; }`;
     }
     styles +=
       `${this._terminalSelector} .${FG_CLASS_PREFIX}${INVERTED_DEFAULT_COLOR} { color: ${color.opaque(colors.background).css}; }` +
-      `${this._terminalSelector} .${FG_CLASS_PREFIX}${INVERTED_DEFAULT_COLOR}.${RowCss.DIM_CLASS} { color: ${color.multiplyOpacity(color.opaque(colors.background), 0.5).css}; }` +
-      `${this._terminalSelector} .${BG_CLASS_PREFIX}${INVERTED_DEFAULT_COLOR} { background-color: ${colors.foreground.css}; }`;
+      `${this._terminalSelector} .${FG_CLASS_PREFIX}${INVERTED_DEFAULT_COLOR}.${RowCss.DIM_CLASS} { color: ${color.multiplyOpacity(color.opaque(colors.background), 0.5).css}; }`;
 
     this._themeStyleElement.textContent = styles;
+
+    // Theme change → repaint canvas with new colors. Guarded with `?.` for the
+    // first call from the constructor before `_bgLayer` has been instantiated.
+    this._bgLayer?.repaintAll();
   }
 
   /**
@@ -406,7 +426,9 @@ export class DomRenderer extends Disposable implements IRenderer {
   }
 
   public handleCursorMove(): void {
-    // No-op, the cursor is drawn when rows are drawn
+    // Reset blink phase so the cursor is fully visible immediately after input
+    // moves it (matches the implicit reset CSS animation got from class churn).
+    this._bgLayer?.resetBlinkPhase();
   }
 
   private _handleOptionsChanged(): void {
@@ -422,6 +444,22 @@ export class DomRenderer extends Disposable implements IRenderer {
       this._optionsService.rawOptions.fontWeightBold
     );
     this._setDefaultSpacing();
+    this._bgLayer?.repaintAll();
+  }
+
+  /**
+   * Called by `BackgroundCanvasLayer` on each blink toggle. Re-renders the
+   * cursor row so the DOM cursor classes (driving the cursorAccent text color)
+   * stay in sync with the canvas-driven block-cursor visibility.
+   */
+  private _handleCursorBlinkTick(): void {
+    if (!this._bgLayer) return;
+    const buffer = this._bufferService.buffer;
+    const cursorAbsY = buffer.ybase + buffer.y;
+    const y = cursorAbsY - buffer.ydisp;
+    if (y >= 0 && y < this._bufferService.rows) {
+      this.renderRows(y, y);
+    }
   }
 
   public clear(): void {
@@ -445,6 +483,7 @@ export class DomRenderer extends Disposable implements IRenderer {
     const cursorBlink = this._coreService.decPrivateModes.cursorBlink ?? this._optionsService.rawOptions.cursorBlink;
     const cursorStyle = this._coreService.decPrivateModes.cursorStyle ?? this._optionsService.rawOptions.cursorStyle;
     const cursorInactiveStyle = this._optionsService.rawOptions.cursorInactiveStyle;
+    const cursorBlinkOn = this._bgLayer?.blinkOn ?? true;
 
     for (let y = start; y <= end; y++) {
       const row = y + buffer.ydisp;
@@ -462,12 +501,14 @@ export class DomRenderer extends Disposable implements IRenderer {
           cursorInactiveStyle,
           cursorX,
           cursorBlink,
+          cursorBlinkOn,
           this.dimensions.css.cell.width,
           this._widthCache,
           -1,
           -1
         )
       );
+      this._bgLayer?.paintRow(y);
     }
   }
 
@@ -513,6 +554,7 @@ export class DomRenderer extends Disposable implements IRenderer {
     const cursorBlink = this._optionsService.rawOptions.cursorBlink;
     const cursorStyle = this._optionsService.rawOptions.cursorStyle;
     const cursorInactiveStyle = this._optionsService.rawOptions.cursorInactiveStyle;
+    const cursorBlinkOn = this._bgLayer?.blinkOn ?? true;
 
     // refresh rows within link range
     for (let i = y; i <= y2; ++i) {
@@ -531,12 +573,14 @@ export class DomRenderer extends Disposable implements IRenderer {
           cursorInactiveStyle,
           cursorX,
           cursorBlink,
+          cursorBlinkOn,
           this.dimensions.css.cell.width,
           this._widthCache,
           enabled ? (i === y ? x : 0) : -1,
           enabled ? ((i === y2 ? x2 : cols) - 1) : -1
         )
       );
+      this._bgLayer?.paintRow(i);
     }
   }
 }

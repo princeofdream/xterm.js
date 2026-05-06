@@ -66,6 +66,7 @@ export class DomRendererRowFactory {
     cursorInactiveStyle: string | undefined,
     cursorX: number,
     cursorBlink: boolean,
+    cursorBlinkOn: boolean,
     cellWidth: number,
     widthCache: WidthCache,
     linkStart: number,
@@ -239,8 +240,18 @@ export class DomRendererRowFactory {
       }
 
       if (!this._coreService.isCursorHidden && isCursorCell && this._coreService.isCursorInitialized) {
+        // Block cursor blink is canvas-driven (BackgroundCanvasLayer flips the
+        // BG fill on/off). When the canvas is in the OFF half of a blink cycle,
+        // also suppress the DOM cursor classes so text reverts to its default
+        // fg color — otherwise the cell would render in cursorAccent over a
+        // bare cell, looking like a permanent inverted glyph.
+        const isFocused = this._coreBrowserService.isFocused;
+        const isBlockBlinkSuppressed =
+          isFocused && cursorBlink && !cursorBlinkOn &&
+          cursorStyle !== 'bar' && cursorStyle !== 'underline';
+        if (!isBlockBlinkSuppressed) {
         classes.push(RowCss.CURSOR_CLASS);
-        if (this._coreBrowserService.isFocused) {
+        if (isFocused) {
           if (cursorBlink) {
             classes.push(RowCss.CURSOR_BLINK_CLASS);
           }
@@ -270,6 +281,7 @@ export class DomRendererRowFactory {
                 break;
             }
           }
+        }
         }
       }
 
@@ -387,23 +399,25 @@ export class DomRendererRowFactory {
         classes.push('xterm-decoration-top');
       }
 
-      // Background
+      // Background — span backgrounds are intentionally NOT painted here.
+      // BackgroundCanvasLayer paints all cell BGs onto a single canvas behind
+      // the rows so adjacent same-color cells overlap by 1 device px and don't
+      // leak sub-pixel seams on transparent webview backgrounds.
+      // We still resolve `resolvedBg` so `_applyMinimumContrast` can compute
+      // contrast of the foreground glyph against the (canvas-painted) BG.
       let resolvedBg: IColor;
       switch (bgColorMode) {
         case Attributes.CM_P16:
         case Attributes.CM_P256:
           resolvedBg = colors.ansi[bg];
-          classes.push(`xterm-bg-${bg}`);
           break;
         case Attributes.CM_RGB:
           resolvedBg = channels.toColor(bg >> 16, bg >> 8 & 0xFF, bg & 0xFF);
-          this._addStyle(charElement, `background-color:#${padStart((bg >>> 0).toString(16), '0', 6)}`);
           break;
         case Attributes.CM_DEFAULT:
         default:
           if (isInverse) {
             resolvedBg = colors.foreground;
-            classes.push(`xterm-bg-${INVERTED_DEFAULT_COLOR}`);
           } else {
             resolvedBg = colors.background;
           }
