@@ -201,9 +201,22 @@ export class GlyphRenderer extends Disposable {
       this._atlasTextures[i] = glTexture;
     }
 
-    // Allow drawing of transparent texture
+    // Allow drawing of transparent texture.
+    // Pipeline is unified-premultiplied to keep transparent-webview rendering
+    // free of halo/dim artifacts on both light and dark themes:
+    //   - UNPACK_PREMULTIPLY_ALPHA_WEBGL=true : the atlas canvas is straight-
+    //     alpha (Canvas 2D fillText output); WebGL premultiplies on upload so
+    //     the texture contains rgb*alpha per texel.
+    //   - blendFunc(ONE, ONE_MINUS_SRC_ALPHA) : the standard premultiplied
+    //     "over" formula. With premultiplied src, this gives mathematically
+    //     correct blending without the alpha-squared / RGB-mismatch issues of
+    //     the previous (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) variant.
+    //   - Canvas attribute premultipliedAlpha: true (default; see
+    //     WebglRenderer.ts contextAttributes) : compositor reads framebuffer
+    //     as premultiplied — matches what we wrote.
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
     // Set viewport
     this.handleResize();
