@@ -347,9 +347,11 @@ export class TextureAtlas implements ITextureAtlas {
       result = color.opaque(result);
     }
 
-    // Apply dim to the color, opacity is fine to use for the foreground color
+    // Apply dim to the color — blend with background to make it visible
+    // on dark themes where multiplyOpacity alone produces invisible text.
     if (dim) {
-      result = color.multiplyOpacity(result, DIM_OPACITY);
+      const dimBg = this._getBackgroundColor(bgColorMode, bgColor, inverse, false);
+      result = color.blend(dimBg, color.multiplyOpacity(result, DIM_OPACITY));
     }
 
     return result;
