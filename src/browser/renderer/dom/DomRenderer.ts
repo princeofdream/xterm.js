@@ -204,7 +204,7 @@ export class DomRenderer extends Disposable implements IRenderer {
       `}`;
     styles +=
       `${this._terminalSelector} .${ROW_CONTAINER_CLASS} .xterm-dim {` +
-      ` color: ${color.multiplyOpacity(colors.foreground, 0.5).css};` +
+      ` color: ${color.blend(colors.background, color.multiplyOpacity(colors.foreground, 0.5)).css};` +
       `}`;
     // Text styles
     styles +=

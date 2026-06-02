@@ -424,9 +424,10 @@ export class DomRendererRowFactory {
       }
 
       // If there is no background override by now it's the original color, so apply dim if needed
+      // NOTE: blend with background to avoid transparent overlay on dark themes
       if (!bgOverride) {
         if (cell.isDim()) {
-          bgOverride = color.multiplyOpacity(resolvedBg, 0.5);
+          bgOverride = color.blend(colors.background, color.multiplyOpacity(resolvedBg, 0.5));
         }
       }
 
