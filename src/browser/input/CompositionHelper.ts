@@ -64,6 +64,8 @@ export class CompositionHelper {
     this._compositionView.textContent = '';
     this._dataAlreadySent = '';
     this._compositionView.classList.add('active');
+    // 立即将空 composition view 定位到当前光标位置，避免闪烁在上次 IME 的旧位置
+    this.updateCompositionElements();
   }
 
   /**
@@ -224,7 +226,6 @@ export class CompositionHelper {
       const cursorTop = this._bufferService.buffer.y * this._renderService.dimensions.css.cell.height;
       const cursorLeft = cursorX * this._renderService.dimensions.css.cell.width;
 
-      this._compositionView.style.left = cursorLeft + 'px';
       this._compositionView.style.top = cursorTop + 'px';
       this._compositionView.style.height = cellHeight + 'px';
       this._compositionView.style.lineHeight = cellHeight + 'px';
@@ -233,7 +234,11 @@ export class CompositionHelper {
       // Sync the textarea to the exact position of the composition view so the IME knows where the
       // text is.
       const compositionViewBounds = this._compositionView.getBoundingClientRect();
-      this._textarea.style.left = cursorLeft + 'px';
+      // 让 composition-view 的右边界始终紧贴光标位置：文字从光标向左延伸显示。
+      // 当 IME 文字比光标到左边界距离还长时，从 0 开始（最左端显示）。
+      const finalLeft = Math.max(0, cursorLeft - compositionViewBounds.width);
+      this._compositionView.style.left = finalLeft + 'px';
+      this._textarea.style.left = finalLeft + 'px';
       this._textarea.style.top = cursorTop + 'px';
       // Ensure the text area is at least 1x1, otherwise certain IMEs may break
       this._textarea.style.width = Math.max(compositionViewBounds.width, 1) + 'px';
