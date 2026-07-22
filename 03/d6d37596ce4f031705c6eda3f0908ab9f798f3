@@ -1,0 +1,19 @@
+src/browser/input/CompositionHelper.ts
+  s_31b8ba2221048b::t_1ef0384fb00700 69-76,252-255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "03d6d37596ce4f031705c6eda3f0908ab9f798f3",
+  "prompts": {},
+  "sessions": {
+    "s_31b8ba2221048b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3ab96127-9166-472a-9fc3-ef7d98bf8a5d",
+        "model": "unknown"
+      },
+      "human_author": "lijin <lijin@syncore.space>"
+    }
+  }
+}
