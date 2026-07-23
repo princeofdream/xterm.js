@@ -231,12 +231,17 @@ export class CompositionHelper {
       this._compositionView.style.lineHeight = cellHeight + 'px';
       this._compositionView.style.fontFamily = this._optionsService.rawOptions.fontFamily;
       this._compositionView.style.fontSize = this._optionsService.rawOptions.fontSize + 'px';
+
       // Sync the textarea to the exact position of the composition view so the IME knows where the
       // text is.
       const compositionViewBounds = this._compositionView.getBoundingClientRect();
-      // 让 composition-view 的右边界始终紧贴光标位置：文字从光标向左延伸显示。
-      // 当 IME 文字比光标到左边界距离还长时，从 0 开始（最左端显示）。
-      const finalLeft = Math.max(0, cursorLeft - compositionViewBounds.width);
+      const terminalWidth = this._bufferService.cols * this._renderService.dimensions.css.cell.width;
+      // Default: composition text extends to the right from cursor position.
+      // Only shift left when text would overflow past the terminal right edge.
+      let finalLeft = cursorLeft;
+      if (cursorLeft + compositionViewBounds.width > terminalWidth) {
+        finalLeft = Math.max(0, terminalWidth - compositionViewBounds.width);
+      }
       this._compositionView.style.left = finalLeft + 'px';
       this._textarea.style.left = finalLeft + 'px';
       this._textarea.style.top = cursorTop + 'px';

@@ -77,9 +77,8 @@
 }
 
 .xterm .composition-view {
-    /* TODO: Composition position got messed up somewhere */
-    background: #000;
-    color: #FFF;
+    /* background handled by app-level CSS (TerminalPane.css) via
+       --ime-composition-bg variable set by CompositionHelper */
     display: none;
     position: absolute;
     white-space: nowrap;
