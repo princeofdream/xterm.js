@@ -1,0 +1,21 @@
+css/xterm.css
+  s_cb2b2ae329506b::t_3360d33d9f2ac5 80-82
+src/browser/input/CompositionHelper.ts
+  s_cb2b2ae329506b::t_e3d1f375856698 44-50,73,242-261,265-271
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "accbdc6c6d20c6d6015d408ce55819bb53690843",
+  "prompts": {},
+  "sessions": {
+    "s_cb2b2ae329506b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99ba6351-6802-40b3-bf0f-23651aa228ea",
+        "model": "unknown"
+      },
+      "human_author": "lijin <lijin@syncore.space>"
+    }
+  }
+}
