@@ -1,0 +1,21 @@
+css/xterm.css
+  s_cb2b2ae329506b::t_97b335ba82edc5 80
+src/browser/input/CompositionHelper.ts
+  s_cb2b2ae329506b::t_fd603c1eaf67de 234-243,247-253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "f9283d30f119ddb10d00c6638ceaa1aab3e9d944",
+  "prompts": {},
+  "sessions": {
+    "s_cb2b2ae329506b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99ba6351-6802-40b3-bf0f-23651aa228ea",
+        "model": "deepseek-v4-pro"
+      },
+      "human_author": "lijin <lijin@syncore.space>"
+    }
+  }
+}
