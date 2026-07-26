@@ -2244,13 +2244,7 @@ export class InputHandler extends Disposable implements IInputHandler {
    */
   public requestMode(params: IParams, ansi: boolean): boolean {
     // return value as in DECRPM
-    const enum V {
-      NOT_RECOGNIZED = 0,
-      SET = 1,
-      RESET = 2,
-      PERMANENTLY_SET = 3,
-      PERMANENTLY_RESET = 4
-    }
+    const V = { NOT_RECOGNIZED: 0, SET: 1, RESET: 2, PERMANENTLY_SET: 3, PERMANENTLY_RESET: 4 } as const;
 
     // access helpers
     const dm = this._coreService.decPrivateModes;
@@ -2260,11 +2254,11 @@ export class InputHandler extends Disposable implements IInputHandler {
     const { active, alt } = buffers;
     const opts = this._optionsService.rawOptions;
 
-    const f = (m: number, v: V): boolean => {
+    const f = (m: number, v: number): boolean => {
       cs.triggerDataEvent(`${C0.ESC}[${ansi ? '' : '?'}${m};${v}$y`);
       return true;
     };
-    const b2v = (value: boolean): V => value ? V.SET : V.RESET;
+    const b2v = (value: boolean): number => value ? V.SET : V.RESET;
 
     const p = params.params[0];
 
