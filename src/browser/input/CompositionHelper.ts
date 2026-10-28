@@ -41,6 +41,13 @@ export class CompositionHelper {
    */
   private _dataAlreadySent: string;
 
+  /**
+   * The buffer cell the composition is anchored to. Captured once at compositionstart so that
+   * TUI applications redrawing the screen (and therefore moving the terminal cursor) cannot drag
+   * the IME candidate window / composition view around while the user is still composing.
+   */
+  private _compositionAnchor: { cellX: number; cellY: number } | undefined;
+
   constructor(
     private readonly _textarea: HTMLTextAreaElement,
     private readonly _compositionView: HTMLElement,
@@ -53,6 +60,7 @@ export class CompositionHelper {
     this._isSendingComposition = false;
     this._compositionPosition = { start: 0, end: 0 };
     this._dataAlreadySent = '';
+    this._compositionAnchor = undefined;
   }
 
   /**
@@ -64,8 +72,25 @@ export class CompositionHelper {
     this._compositionView.textContent = '';
     this._dataAlreadySent = '';
     this._compositionView.classList.add('active');
+    // 把 IME 锚定在「开始组字时光标所在的那一格」。TUI（opencode / Claude Code 等）在流式输出
+    // 时会不断重绘并移动终端光标，若每帧都跟随 buffer 光标，IME 候选窗会一直乱跳。
+    this._compositionAnchor = this._captureCompositionAnchor();
     // 立即将空 composition view 定位到当前光标位置，避免闪烁在上次 IME 的旧位置
     this.updateCompositionElements();
+  }
+
+  /**
+   * Snapshot the cursor cell for the current composition. Returns undefined when the cursor is
+   * outside the viewport, in which case a later call can retry once it becomes visible.
+   */
+  private _captureCompositionAnchor(): { cellX: number; cellY: number } | undefined {
+    if (!this._bufferService.buffer.isCursorInViewport) {
+      return undefined;
+    }
+    return {
+      cellX: Math.min(this._bufferService.buffer.x, this._bufferService.cols - 1),
+      cellY: this._bufferService.buffer.y
+    };
   }
 
   /**
@@ -130,6 +155,7 @@ export class CompositionHelper {
   private _finalizeComposition(waitForPropagation: boolean): void {
     this._compositionView.classList.remove('active');
     this._isComposing = false;
+    this._compositionAnchor = undefined;
 
     if (!waitForPropagation) {
       // Cancel any delayed composition send requests and send the input immediately.
@@ -219,11 +245,18 @@ export class CompositionHelper {
       return;
     }
 
-    if (this._bufferService.buffer.isCursorInViewport) {
-      const cursorX = Math.min(this._bufferService.buffer.x, this._bufferService.cols - 1);
+    // Keep using the anchor captured at compositionstart instead of the live cursor. TUI apps
+    // redraw while streaming output and momentarily move the cursor elsewhere (status bar,
+    // right edge, ...); following it would make the IME candidate window jump on every render.
+    if (!this._compositionAnchor) {
+      this._compositionAnchor = this._captureCompositionAnchor();
+    }
+    const anchor = this._compositionAnchor;
+    if (anchor) {
+      const cursorX = anchor.cellX;
 
       const cellHeight = this._renderService.dimensions.css.cell.height;
-      const cursorTop = this._bufferService.buffer.y * this._renderService.dimensions.css.cell.height;
+      const cursorTop = anchor.cellY * this._renderService.dimensions.css.cell.height;
       const cursorLeft = cursorX * this._renderService.dimensions.css.cell.width;
 
       this._compositionView.style.top = cursorTop + 'px';

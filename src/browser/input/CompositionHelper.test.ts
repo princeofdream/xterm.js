@@ -13,6 +13,8 @@ describe('CompositionHelper', () => {
   let compositionView: HTMLElement;
   let textarea: HTMLTextAreaElement;
   let handledText: string;
+  let bufferService: MockBufferService;
+  let renderService: MockRenderService;
 
   beforeEach(() => {
     compositionView = {
@@ -41,8 +43,9 @@ describe('CompositionHelper', () => {
       handledText += text;
     };
     handledText = '';
-    const bufferService = new MockBufferService(10, 5);
-    compositionHelper = new CompositionHelper(textarea, compositionView, bufferService, new MockOptionsService(), coreService, new MockRenderService());
+    bufferService = new MockBufferService(10, 5);
+    renderService = new MockRenderService();
+    compositionHelper = new CompositionHelper(textarea, compositionView, bufferService, new MockOptionsService(), coreService, renderService);
   });
 
   describe('Input', () => {
@@ -232,6 +235,36 @@ describe('CompositionHelper', () => {
           done();
         }, 0);
       }, 0);
+    });
+  });
+
+  describe('Anchoring', () => {
+    it('Should keep the IME anchor fixed when the cursor moves during composition', () => {
+      renderService.dimensions.css.cell.width = 10;
+      renderService.dimensions.css.cell.height = 20;
+
+      // The user starts composing at the input box (col 2, row 1).
+      bufferService.buffer.x = 2;
+      bufferService.buffer.y = 1;
+      compositionHelper.compositionstart();
+
+      assert.equal(textarea.style.left, '20px');
+      assert.equal(textarea.style.top, '20px');
+      assert.equal(compositionView.style.left, '20px');
+      assert.equal(compositionView.style.top, '20px');
+
+      // A TUI app (e.g. opencode) redraws while streaming output, moving the
+      // terminal cursor elsewhere. onRender calls updateCompositionElements().
+      bufferService.buffer.x = 7;
+      bufferService.buffer.y = 3;
+      compositionHelper.updateCompositionElements(true);
+
+      assert.equal(textarea.style.left, '20px', 'textarea must not follow the redraw');
+      assert.equal(textarea.style.top, '20px', 'textarea must not follow the redraw');
+      assert.equal(compositionView.style.left, '20px', 'composition view must not follow the redraw');
+      assert.equal(compositionView.style.top, '20px', 'composition view must not follow the redraw');
+
+      compositionHelper.compositionend();
     });
   });
 });
