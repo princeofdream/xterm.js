@@ -12,12 +12,15 @@ import { getSafariVersion, isSafari } from 'common/Platform';
 import { ICoreService, IDecorationService, ILogService, IOptionsService } from 'common/services/Services';
 import { IWebGL2RenderingContext } from './Types';
 import { WebglRenderer } from './WebglRenderer';
+import type { ITextShadowOptions } from './GlyphRenderer';
 import { setTraceLogger } from 'common/services/LogService';
 import { Emitter, Event } from 'vs/base/common/event';
 
 export class WebglAddon extends Disposable implements ITerminalAddon , IWebglApi {
   private _terminal?: Terminal;
   private _renderer?: WebglRenderer;
+  /** activate 之前设置的阴影参数，延迟到渲染器就绪后下发 */
+  private _textShadow?: { enabled: boolean; options?: ITextShadowOptions };
 
   private readonly _onChangeTextureAtlas = this._register(new Emitter<HTMLCanvasElement>());
   public readonly onChangeTextureAtlas = this._onChangeTextureAtlas.event;
@@ -85,6 +88,9 @@ export class WebglAddon extends Disposable implements ITerminalAddon , IWebglApi
     this._register(Event.forward(this._renderer.onChangeTextureAtlas, this._onChangeTextureAtlas));
     this._register(Event.forward(this._renderer.onAddTextureAtlasCanvas, this._onAddTextureAtlasCanvas));
     this._register(Event.forward(this._renderer.onRemoveTextureAtlasCanvas, this._onRemoveTextureAtlasCanvas));
+    if (this._textShadow) {
+      this._renderer.setTextShadow(this._textShadow.enabled, this._textShadow.options);
+    }
     renderService.setRenderer(this._renderer);
 
     this._register(toDisposable(() => {
@@ -103,5 +109,14 @@ export class WebglAddon extends Disposable implements ITerminalAddon , IWebglApi
 
   public clearTextureAtlas(): void {
     this._renderer?.clearTextureAtlas();
+  }
+
+  /**
+   * 开启/关闭文字阴影（ackshell 补丁）。偏移量单位 CSS 像素。
+   * 可在 activate 之前调用，渲染器就绪后自动应用。
+   */
+  public setTextShadow(enabled: boolean, options?: ITextShadowOptions): void {
+    this._textShadow = { enabled, options };
+    this._renderer?.setTextShadow(enabled, options);
   }
 }

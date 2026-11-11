@@ -7,6 +7,26 @@ import { Terminal, ITerminalAddon, IEvent } from '@xterm/xterm';
 
 declare module '@xterm/addon-webgl' {
   /**
+   * Text shadow options (ackshell patch). Offsets are in CSS pixels and are
+   * multiplied by the device pixel ratio internally.
+   */
+  export interface ITextShadowOptions {
+    /** Horizontal offset in CSS pixels (default 0) */
+    offsetX?: number;
+    /** Vertical offset in CSS pixels (default 1) */
+    offsetY?: number;
+    /** Opacity of the primary shadow, 0..1 (default 0.9) */
+    alpha?: number;
+    /** Extra soft layers below the primary shadow, 0..4 (default 1) */
+    passes?: number;
+    /**
+     * Shadow color (0..1 per channel). Defaults to black; WebglRenderer picks
+     * black or white automatically from the theme background luminance.
+     */
+    color?: { r: number; g: number; b: number };
+  }
+
+  /**
    * An xterm.js addon that provides hardware-accelerated rendering functionality via WebGL.
    */
   export class WebglAddon implements ITerminalAddon {
@@ -49,5 +69,12 @@ declare module '@xterm/addon-webgl' {
      * Clears the terminal's texture atlas and triggers a redraw.
      */
     public clearTextureAtlas(): void;
+
+    /**
+     * Enables or disables a glyph drop shadow (ackshell patch). Safe to call
+     * before the addon is activated; the state is applied once the renderer
+     * exists.
+     */
+    public setTextShadow(enabled: boolean, options?: ITextShadowOptions): void;
   }
 }

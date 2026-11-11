@@ -16,7 +16,7 @@ import { CellData } from 'common/buffer/CellData';
 import { Attributes, Content, NULL_CELL_CHAR, NULL_CELL_CODE } from 'common/buffer/Constants';
 import { ICoreService, IDecorationService, IOptionsService } from 'common/services/Services';
 import { Terminal } from '@xterm/xterm';
-import { GlyphRenderer } from './GlyphRenderer';
+import { GlyphRenderer, type ITextShadowOptions } from './GlyphRenderer';
 import { RectangleRenderer } from './RectangleRenderer';
 import { COMBINED_CHAR_BIT_MASK, RENDER_MODEL_BG_OFFSET, RENDER_MODEL_EXT_OFFSET, RENDER_MODEL_FG_OFFSET, RENDER_MODEL_INDICIES_PER_CELL, RenderModel } from './RenderModel';
 import { IWebGL2RenderingContext, type ITextureAtlas } from './Types';
@@ -45,6 +45,17 @@ export class WebglRenderer extends Disposable implements IRenderer {
   private _gl: IWebGL2RenderingContext;
   private _rectangleRenderer: MutableDisposable<RectangleRenderer> = this._register(new MutableDisposable());
   private _glyphRenderer: MutableDisposable<GlyphRenderer> = this._register(new MutableDisposable());
+  /**
+   * 文字阴影状态（ackshell 补丁）。偏移量按 CSS 像素保存，应用时乘 DPR，
+   * 这样窗口在 1x/2x 屏之间移动后阴影粗细保持一致。
+   */
+  private _textShadow: { enabled: boolean; offsetX: number; offsetY: number; alpha: number; passes: number } = {
+    enabled: false,
+    offsetX: 0,
+    offsetY: 1,
+    alpha: 0.9,
+    passes: 1
+  };
 
   public readonly dimensions: IRenderDimensions;
 
@@ -162,8 +173,71 @@ export class WebglRenderer extends Disposable implements IRenderer {
     return this._charAtlas?.pages[0].canvas;
   }
 
+  /**
+   * 开启/关闭文字阴影（ackshell 补丁）。偏移量单位 CSS 像素。
+   * 关闭时传 enabled=false 即可，无需重新创建渲染器。
+   */
+  public setTextShadow(enabled: boolean, options?: ITextShadowOptions): void {
+    this._textShadow = {
+      enabled,
+      offsetX: options?.offsetX ?? 0,
+      offsetY: options?.offsetY ?? 1,
+      alpha: options?.alpha ?? 0.9,
+      passes: options?.passes ?? 1
+    };
+    this._applyTextShadow();
+    this._requestRedrawViewport();
+  }
+
+  private _applyTextShadow(): void {
+    const glyphRenderer = this._glyphRenderer.value;
+    if (!glyphRenderer) {
+      return;
+    }
+    const shadow = this._textShadow;
+    const dpr = this._devicePixelRatio;
+    const palette = this._shadowPalette();
+    // 偏移必须落在整数设备像素上：1.25/1.5 这类 DPR 下分数偏移会让纹理重采样，
+    // 阴影边缘出现锯齿和「脏点」。
+    glyphRenderer.setTextShadow(shadow.enabled && shadow.alpha > 0 ? {
+      offsetX: Math.round(shadow.offsetX * dpr),
+      offsetY: Math.round(shadow.offsetY * dpr),
+      alpha: shadow.alpha * palette.alphaScale,
+      passes: shadow.passes,
+      color: palette.color
+    } : undefined);
+  }
+
+  /**
+   * 投影颜色跟底色走，而不是固定纯黑 —— 纯黑投影在浅色底上等于把字压粗
+   * （表现为「像加黑了」）。浅色底用底色压暗 60% 的中性灰；深色底保持黑（对比足够）；
+   * 纯黑底没有更暗的颜色，退成低透明度白，近似描边微光。
+   */
+  private _shadowPalette(): { color: { r: number; g: number; b: number }; alphaScale: number } {
+    const rgba = this._themeService.colors.background.rgba;
+    const r = (rgba >>> 24) & 0xFF;
+    const g = (rgba >>> 16) & 0xFF;
+    const b = (rgba >>> 8) & 0xFF;
+    // sRGB 感知亮度近似
+    const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    if (luminance < 0.06) {
+      return { color: { r: 1, g: 1, b: 1 }, alphaScale: 0.3 };
+    }
+    if (luminance > 0.5) {
+      // 浅色底：底色 × 0.4 的灰，投影是「灰雾」而不是「黑边」
+      const shade = 0.4;
+      return {
+        color: { r: (r / 255) * shade, g: (g / 255) * shade, b: (b / 255) * shade },
+        alphaScale: 1
+      };
+    }
+    return { color: { r: 0, g: 0, b: 0 }, alphaScale: 1 };
+  }
+
   private _handleColorChange(): void {
     this._refreshCharAtlas();
+    // 主题切换后底色亮度可能翻转，阴影颜色要跟着换（黑 ↔ 白）
+    this._applyTextShadow();
 
     // Force a full refresh
     this._clearModel(true);
@@ -175,6 +249,8 @@ export class WebglRenderer extends Disposable implements IRenderer {
     if (this._devicePixelRatio !== this._coreBrowserService.dpr) {
       this._devicePixelRatio = this._coreBrowserService.dpr;
       this.handleResize(this._terminal.cols, this._terminal.rows);
+      // 阴影偏移以 CSS 像素存储，DPR 变化后需要按新比例重新下发
+      this._applyTextShadow();
     }
   }
 
@@ -263,6 +339,9 @@ export class WebglRenderer extends Disposable implements IRenderer {
 
     // Update dimensions and acquire char atlas
     this.handleCharSizeChanged();
+
+    // 上下文恢复会重建 GlyphRenderer，需要重新下发阴影参数
+    this._applyTextShadow();
 
     return [this._rectangleRenderer.value, this._glyphRenderer.value];
   }

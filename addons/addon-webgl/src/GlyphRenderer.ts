@@ -12,6 +12,29 @@ import { createProgram, GLTexture, PROJECTION_MATRIX } from './WebglUtils';
 import type { IOptionsService } from 'common/services/Services';
 import { allowRescaling, throwIfFalsy } from 'browser/renderer/shared/RendererUtils';
 
+/**
+ * 文字阴影（ackshell 补丁）。
+ *
+ * 实现在 glyph pass 里把同一批字形实例多画一遍：先按偏移画纯黑（预乘 alpha）
+ * 的剪影，再画正常字形。因为 WebglRenderer 的绘制顺序是「全部底色 → 全部字形」，
+ * 阴影不会像逐 cell 绘制那样被相邻 cell 的底色裁掉。
+ */
+export interface ITextShadowOptions {
+  /** 水平偏移，单位：设备像素（调用方负责乘 DPR） */
+  offsetX?: number;
+  /** 垂直偏移，单位：设备像素（调用方负责乘 DPR） */
+  offsetY?: number;
+  /** 主阴影不透明度 0..1 */
+  alpha?: number;
+  /** 额外柔化层数：0 = 只有一层硬阴影，每加一层向下扩 1 设备像素并衰减 */
+  passes?: number;
+  /**
+   * 阴影颜色（0..1）。深色底用黑、浅色底用白，由 WebglRenderer 按主题亮度选，
+   * 否则浅色主题里黑投影几乎看不见。
+   */
+  color?: { r: number; g: number; b: number };
+}
+
 interface IVertices {
   attributes: Float32Array;
   /**
@@ -45,12 +68,14 @@ layout (location = ${VertexAttribLocations.TEXSIZE}) in vec2 a_texsize;
 
 uniform mat4 u_projection;
 uniform vec2 u_resolution;
+// 文字阴影 pass 的字形偏移（设备像素）；正常 pass 恒为 0
+uniform vec2 u_shadowOffset;
 
 out vec2 v_texcoord;
 flat out int v_texpage;
 
 void main() {
-  vec2 zeroToOne = (a_offset / u_resolution) + a_cellpos + (a_unitquad * a_size);
+  vec2 zeroToOne = ((a_offset + u_shadowOffset) / u_resolution) + a_cellpos + (a_unitquad * a_size);
   gl_Position = u_projection * vec4(zeroToOne, 0.0, 1.0);
   v_texpage = int(a_texpage);
   v_texcoord = a_texcoord + a_unitquad * a_texsize;
@@ -59,7 +84,7 @@ void main() {
 function createFragmentShaderSource(maxFragmentShaderTextureUnits: number): string {
   let textureConditionals = '';
   for (let i = 1; i < maxFragmentShaderTextureUnits; i++) {
-    textureConditionals += ` else if (v_texpage == ${i}) { outColor = texture(u_texture[${i}], v_texcoord); }`;
+    textureConditionals += ` else if (v_texpage == ${i}) { texel = texture(u_texture[${i}], v_texcoord); }`;
   }
   return (`#version 300 es
 precision lowp float;
@@ -68,13 +93,23 @@ in vec2 v_texcoord;
 flat in int v_texpage;
 
 uniform sampler2D u_texture[${maxFragmentShaderTextureUnits}];
+// >0 表示当前是阴影 pass：只取字形的覆盖度，按 u_shadowColor 上色
+uniform float u_shadowAlpha;
+uniform vec3 u_shadowColor;
 
 out vec4 outColor;
 
 void main() {
+  vec4 texel = vec4(0.0);
   if (v_texpage == 0) {
-    outColor = texture(u_texture[0], v_texcoord);
+    texel = texture(u_texture[0], v_texcoord);
   } ${textureConditionals}
+  // 输出必须保持预乘 alpha（与 UNPACK_PREMULTIPLY_ALPHA_WEBGL + blendFunc(ONE, ONE_MINUS_SRC_ALPHA) 一致），
+  // 所以阴影是 rgb = 颜色 * 覆盖度 * 强度、alpha = 覆盖度 * 强度。
+  float shadowAlpha = texel.a * u_shadowAlpha;
+  outColor = u_shadowAlpha > 0.0
+    ? vec4(u_shadowColor * shadowAlpha, shadowAlpha)
+    : texel;
 }`);
 }
 
@@ -94,11 +129,22 @@ export class GlyphRenderer extends Disposable {
   private readonly _projectionLocation: WebGLUniformLocation;
   private readonly _resolutionLocation: WebGLUniformLocation;
   private readonly _textureLocation: WebGLUniformLocation;
+  private readonly _shadowOffsetLocation: WebGLUniformLocation;
+  private readonly _shadowAlphaLocation: WebGLUniformLocation;
+  private readonly _shadowColorLocation: WebGLUniformLocation;
   private readonly _atlasTextures: GLTexture[];
   private readonly _attributesBuffer: WebGLBuffer;
 
   private _atlas: ITextureAtlas | undefined;
   private _activeBuffer: number = 0;
+  /** 阴影参数（设备像素）；_shadowAlpha = 0 时不出阴影 pass */
+  private _shadowOffsetX = 0;
+  private _shadowOffsetY = 0;
+  private _shadowAlpha = 0;
+  private _shadowPasses = 0;
+  private _shadowColorR = 0;
+  private _shadowColorG = 0;
+  private _shadowColorB = 0;
   private readonly _vertices: IVertices = {
     count: 0,
     attributes: new Float32Array(0),
@@ -132,6 +178,9 @@ export class GlyphRenderer extends Disposable {
     this._projectionLocation = throwIfFalsy(gl.getUniformLocation(this._program, 'u_projection'));
     this._resolutionLocation = throwIfFalsy(gl.getUniformLocation(this._program, 'u_resolution'));
     this._textureLocation = throwIfFalsy(gl.getUniformLocation(this._program, 'u_texture'));
+    this._shadowOffsetLocation = throwIfFalsy(gl.getUniformLocation(this._program, 'u_shadowOffset'));
+    this._shadowAlphaLocation = throwIfFalsy(gl.getUniformLocation(this._program, 'u_shadowAlpha'));
+    this._shadowColorLocation = throwIfFalsy(gl.getUniformLocation(this._program, 'u_shadowColor'));
 
     // Create and set the vertex array object
     this._vertexArrayObject = gl.createVertexArray();
@@ -336,6 +385,38 @@ export class GlyphRenderer extends Disposable {
     this.clear();
   }
 
+  /**
+   * 设置文字阴影（ackshell 补丁）。传 undefined / alpha<=0 关闭。
+   * 偏移量为设备像素，调用方需自行乘 DPR。
+   */
+  public setTextShadow(options: ITextShadowOptions | undefined): void {
+    if (!options || !options.alpha || options.alpha <= 0) {
+      this._shadowAlpha = 0;
+      this._shadowPasses = 0;
+      return;
+    }
+    this._shadowOffsetX = options.offsetX ?? 0;
+    this._shadowOffsetY = options.offsetY ?? 0;
+    this._shadowAlpha = Math.min(1, options.alpha);
+    this._shadowPasses = Math.max(0, Math.min(4, options.passes ?? 0));
+    this._shadowColorR = options.color?.r ?? 0;
+    this._shadowColorG = options.color?.g ?? 0;
+    this._shadowColorB = options.color?.b ?? 0;
+  }
+
+  public get textShadow(): ITextShadowOptions | undefined {
+    if (this._shadowAlpha <= 0) {
+      return undefined;
+    }
+    return {
+      offsetX: this._shadowOffsetX,
+      offsetY: this._shadowOffsetY,
+      alpha: this._shadowAlpha,
+      passes: this._shadowPasses,
+      color: { r: this._shadowColorR, g: this._shadowColorG, b: this._shadowColorB }
+    };
+  }
+
   public render(renderModel: IRenderModel): void {
     if (!this._atlas) {
       return;
@@ -377,7 +458,21 @@ export class GlyphRenderer extends Disposable {
     }
 
     // Draw the viewport
-    gl.drawElementsInstanced(gl.TRIANGLE_STRIP, 4, gl.UNSIGNED_BYTE, 0, bufferLength / INDICES_PER_CELL);
+    const instances = bufferLength / INDICES_PER_CELL;
+    if (this._shadowAlpha > 0) {
+      // 阴影 pass：同一批实例按偏移再画一遍纯黑剪影。第 0 层是主阴影，
+      // 之后每层再向下扩 1 设备像素并衰减，近似 CSS 的 blur 尾部。
+      gl.uniform3f(this._shadowColorLocation, this._shadowColorR, this._shadowColorG, this._shadowColorB);
+      for (let i = 0; i <= this._shadowPasses; i++) {
+        gl.uniform2f(this._shadowOffsetLocation, this._shadowOffsetX, this._shadowOffsetY + i);
+        gl.uniform1f(this._shadowAlphaLocation, this._shadowAlpha * (i === 0 ? 1 : 1 / (i * 2)));
+        gl.drawElementsInstanced(gl.TRIANGLE_STRIP, 4, gl.UNSIGNED_BYTE, 0, instances);
+      }
+      // 复位，避免影响正常 pass（同一 program 的 uniform 状态是持久的）
+      gl.uniform2f(this._shadowOffsetLocation, 0, 0);
+      gl.uniform1f(this._shadowAlphaLocation, 0);
+    }
+    gl.drawElementsInstanced(gl.TRIANGLE_STRIP, 4, gl.UNSIGNED_BYTE, 0, instances);
   }
 
   public setAtlas(atlas: ITextureAtlas): void {
