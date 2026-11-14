@@ -46,7 +46,7 @@ export class CompositionHelper {
    * TUI applications redrawing the screen (and therefore moving the terminal cursor) cannot drag
    * the IME candidate window / composition view around while the user is still composing.
    */
-  private _compositionAnchor: { cellX: number; cellY: number } | undefined;
+  private _compositionAnchor: { cellX: number, cellY: number } | undefined;
 
   constructor(
     private readonly _textarea: HTMLTextAreaElement,
@@ -83,7 +83,7 @@ export class CompositionHelper {
    * Snapshot the cursor cell for the current composition. Returns undefined when the cursor is
    * outside the viewport, in which case a later call can retry once it becomes visible.
    */
-  private _captureCompositionAnchor(): { cellX: number; cellY: number } | undefined {
+  private _captureCompositionAnchor(): { cellX: number, cellY: number } | undefined {
     if (!this._bufferService.buffer.isCursorInViewport) {
       return undefined;
     }

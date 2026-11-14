@@ -8,7 +8,7 @@ const path = require('path');
 const util = require('util');
 
 const axios = require('axios').default;
-const mkdirp = require('mkdirp');
+const { mkdirp } = require('mkdirp');
 const yauzl = require('yauzl');
 
 const urls = {

@@ -145,7 +145,7 @@ export interface IBrandedService {
 
 type GetLeadingNonServiceArgs<TArgs extends any[]> = TArgs extends [] ? []
   : TArgs extends [...infer TFirst, infer TLast] ? TLast extends IBrandedService ? GetLeadingNonServiceArgs<TFirst> : TArgs
-    : never;
+  : never;
 
 export const IInstantiationService = createDecorator<IInstantiationService>('InstantiationService');
 export interface IInstantiationService {

@@ -54,7 +54,7 @@ export class IIPHandler implements IOscHandler, IResetHandler {
     if (this._aborted) return;
 
     if (this._hp.state === HeaderState.END) {
-      if (this._dec.put(data, start, end)) {
+      if (this._dec.put(data.subarray(start, end))) {
         this._dec.release();
         this._aborted = true;
       }
@@ -71,7 +71,7 @@ export class IIPHandler implements IOscHandler, IResetHandler {
           return;
         }
         this._dec.init(this._header.size);
-        if (this._dec.put(data, dataPos, end)) {
+        if (this._dec.put(data.subarray(dataPos, end))) {
           this._dec.release();
           this._aborted = true;
         }

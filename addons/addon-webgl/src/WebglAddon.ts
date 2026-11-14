@@ -20,7 +20,7 @@ export class WebglAddon extends Disposable implements ITerminalAddon , IWebglApi
   private _terminal?: Terminal;
   private _renderer?: WebglRenderer;
   /** activate 之前设置的阴影参数，延迟到渲染器就绪后下发 */
-  private _textShadow?: { enabled: boolean; options?: ITextShadowOptions };
+  private _textShadow?: { enabled: boolean, options?: ITextShadowOptions };
 
   private readonly _onChangeTextureAtlas = this._register(new Emitter<HTMLCanvasElement>());
   public readonly onChangeTextureAtlas = this._onChangeTextureAtlas.event;

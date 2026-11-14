@@ -32,7 +32,7 @@ export interface ITextShadowOptions {
    * 阴影颜色（0..1）。深色底用黑、浅色底用白，由 WebglRenderer 按主题亮度选，
    * 否则浅色主题里黑投影几乎看不见。
    */
-  color?: { r: number; g: number; b: number };
+  color?: { r: number, g: number, b: number };
 }
 
 interface IVertices {

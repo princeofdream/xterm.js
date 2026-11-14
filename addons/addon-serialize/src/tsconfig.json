@@ -23,6 +23,7 @@
       ]
     },
     "strict": true,
+    "skipLibCheck": true,
     "types": [
       "../../../node_modules/@types/mocha"
     ]

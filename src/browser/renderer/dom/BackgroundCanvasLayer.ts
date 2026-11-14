@@ -84,7 +84,10 @@ export class BackgroundCanvasLayer extends Disposable {
     }));
   }
 
-  /** Sync canvas physical buffer + CSS size to current dimensions. Caller should follow with `repaintAll()`. */
+  /**
+   * Sync canvas physical buffer + CSS size to current dimensions.
+   * Caller should follow with `repaintAll()`.
+   */
   public resize(): void {
     if (!this._ctx) return;
     const dim = this._getDimensions();

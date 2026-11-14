@@ -49,7 +49,7 @@ export class WebglRenderer extends Disposable implements IRenderer {
    * 文字阴影状态（ackshell 补丁）。偏移量按 CSS 像素保存，应用时乘 DPR，
    * 这样窗口在 1x/2x 屏之间移动后阴影粗细保持一致。
    */
-  private _textShadow: { enabled: boolean; offsetX: number; offsetY: number; alpha: number; passes: number } = {
+  private _textShadow: { enabled: boolean, offsetX: number, offsetY: number, alpha: number, passes: number } = {
     enabled: false,
     offsetX: 0,
     offsetY: 1,
@@ -213,7 +213,7 @@ export class WebglRenderer extends Disposable implements IRenderer {
    * （表现为「像加黑了」）。浅色底用底色压暗 60% 的中性灰；深色底保持黑（对比足够）；
    * 纯黑底没有更暗的颜色，退成低透明度白，近似描边微光。
    */
-  private _shadowPalette(): { color: { r: number; g: number; b: number }; alphaScale: number } {
+  private _shadowPalette(): { color: { r: number, g: number, b: number }, alphaScale: number } {
     const rgba = this._themeService.colors.background.rgba;
     const r = (rgba >>> 24) & 0xFF;
     const g = (rgba >>> 16) & 0xFF;
