@@ -47,10 +47,34 @@ try {
     # -----------------------------------------------------------------------
     # Install
     # -----------------------------------------------------------------------
-    if (-not (Test-Path "node_modules")) {
+    # A bare Test-Path check is not enough: an interrupted install can leave
+    # node_modules present but nearly empty. `npm run tsc` would then fall back
+    # to a globally installed tsc (TS 7+ drops baseUrl/downlevelIteration and
+    # breaks these tsconfigs). Require the packages the build actually uses.
+    $requiredPackages = @(
+        "node_modules/typescript/package.json",
+        "node_modules/@types/node/package.json",
+        "node_modules/@types/mocha/package.json",
+        "node_modules/esbuild/package.json"
+    )
+    $needsInstall = -not (Test-Path "node_modules")
+    if (-not $needsInstall) {
+        foreach ($pkg in $requiredPackages) {
+            if (-not (Test-Path $pkg)) { $needsInstall = $true; break }
+        }
+    }
+    if ($needsInstall) {
         Write-Host "[xterm.js] Running npm install (this can take ~10+ minutes)..."
+        # node-pty (demo/integration tests only) needs a local C++ toolchain and
+        # Windows SDK. Building the addon bundles does not. If the full install
+        # fails, retry without lifecycle scripts so the JS build can proceed.
         npm install
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[xterm.js] npm install failed; retrying with --ignore-scripts"
+            Write-Host "[xterm.js] (node-pty/demo native bits will be unavailable, build artifacts are unaffected)"
+            npm install --ignore-scripts
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
     }
 
     # -----------------------------------------------------------------------

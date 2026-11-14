@@ -50,9 +50,29 @@ fi
 # ---------------------------------------------------------------------------
 # Install
 # ---------------------------------------------------------------------------
-if [[ ! -d "node_modules" ]]; then
+# A bare `-d node_modules` check is not enough: an interrupted install can
+# leave the directory present but nearly empty. `npm run tsc` would then fall
+# back to a globally installed tsc (TS 7+ drops baseUrl/downlevelIteration and
+# breaks these tsconfigs). Require the packages the build actually uses.
+needs_install=0
+if [[ ! -d "node_modules" ]] \
+    || [[ ! -f "node_modules/typescript/package.json" ]] \
+    || [[ ! -f "node_modules/@types/node/package.json" ]] \
+    || [[ ! -f "node_modules/@types/mocha/package.json" ]] \
+    || [[ ! -f "node_modules/esbuild/package.json" ]]; then
+    needs_install=1
+fi
+
+if [[ $needs_install -eq 1 ]]; then
     echo "[xterm.js] Running npm install (this can take ~10+ minutes)..."
-    npm install
+    # node-pty (demo/integration tests only) needs a local C++ toolchain and
+    # Windows SDK. Building the addon bundles does not. If the full install
+    # fails, retry without lifecycle scripts so the JS build can proceed.
+    if ! npm install; then
+        echo "[xterm.js] npm install failed; retrying with --ignore-scripts"
+        echo "[xterm.js] (node-pty/demo native bits will be unavailable, build artifacts are unaffected)"
+        npm install --ignore-scripts
+    fi
 fi
 
 # ---------------------------------------------------------------------------
