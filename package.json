@@ -1,7 +1,7 @@
 {
   "name": "@xterm/xterm",
   "description": "Full xterm terminal, in your browser",
-  "version": "6.0.0-canvas-bg.56bad3a",
+  "version": "6.0.0-canvas-bg.8e4a052",
   "main": "lib/xterm.js",
   "module": "lib/xterm.mjs",
   "style": "css/xterm.css",

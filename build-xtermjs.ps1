@@ -53,6 +53,7 @@ try {
     # breaks these tsconfigs). Require the packages the build actually uses.
     $requiredPackages = @(
         "node_modules/typescript/package.json",
+        "node_modules/.bin/tsc",
         "node_modules/@types/node/package.json",
         "node_modules/@types/mocha/package.json",
         "node_modules/esbuild/package.json"
@@ -76,6 +77,27 @@ try {
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
     }
+
+    # Guard against a broken/partial node_modules silently falling back to a
+    # globally installed tsc. The tsconfigs in this fork target TypeScript 5.x;
+    # TS 6/7 removed baseUrl, downlevelIteration and moduleResolution=node, which
+    # produces a wall of TS5102/TS5108/TS2688 errors that look unrelated.
+    $localTscVersion = ""
+    if (Test-Path "node_modules/typescript/package.json") {
+        $localTscVersion = (& node -p "require('typescript/package.json').version" 2>$null)
+    }
+    if (-not $localTscVersion -or -not (Test-Path "node_modules/.bin/tsc")) {
+        Write-Host "[xterm.js] ERROR: local TypeScript not found under node_modules."
+        Write-Host "[xterm.js] Run 'npm install --ignore-scripts' in $scriptDir and retry."
+        exit 1
+    }
+    if (-not $localTscVersion.StartsWith("5.")) {
+        Write-Host "[xterm.js] ERROR: unsupported TypeScript $localTscVersion (expected 5.x)."
+        Write-Host "[xterm.js] This fork's tsconfigs use baseUrl/downlevelIteration, which TS 6+ removed."
+        Write-Host "[xterm.js] Run 'npm install --ignore-scripts' in $scriptDir to restore the pinned 5.5."
+        exit 1
+    }
+    Write-Host "[xterm.js] Local TypeScript: $localTscVersion"
 
     # -----------------------------------------------------------------------
     # Stamp version with current commit SHA

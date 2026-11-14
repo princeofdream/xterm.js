@@ -57,6 +57,7 @@ fi
 needs_install=0
 if [[ ! -d "node_modules" ]] \
     || [[ ! -f "node_modules/typescript/package.json" ]] \
+    || [[ ! -f "node_modules/.bin/tsc" ]] \
     || [[ ! -f "node_modules/@types/node/package.json" ]] \
     || [[ ! -f "node_modules/@types/mocha/package.json" ]] \
     || [[ ! -f "node_modules/esbuild/package.json" ]]; then
@@ -74,6 +75,27 @@ if [[ $needs_install -eq 1 ]]; then
         npm install --ignore-scripts
     fi
 fi
+
+# Guard against a broken/partial node_modules silently falling back to a
+# globally installed tsc. The tsconfigs in this fork target TypeScript 5.x;
+# TS 6/7 removed baseUrl, downlevelIteration and moduleResolution=node, which
+# produces a wall of TS5102/TS5108/TS2688 errors that look unrelated.
+LOCAL_TSC_VERSION="$(node -p "require('typescript/package.json').version" 2>/dev/null || true)"
+if [[ -z "$LOCAL_TSC_VERSION" ]] || [[ ! -f "node_modules/.bin/tsc" ]]; then
+    echo "[xterm.js] ERROR: local TypeScript not found under node_modules."
+    echo "[xterm.js] Run 'npm install --ignore-scripts' in $SCRIPT_DIR and retry."
+    exit 1
+fi
+case "$LOCAL_TSC_VERSION" in
+    5.*) ;;
+    *)
+        echo "[xterm.js] ERROR: unsupported TypeScript $LOCAL_TSC_VERSION (expected 5.x)."
+        echo "[xterm.js] This fork's tsconfigs use baseUrl/downlevelIteration, which TS 6+ removed."
+        echo "[xterm.js] Run 'npm install --ignore-scripts' in $SCRIPT_DIR to restore the pinned 5.5."
+        exit 1
+        ;;
+esac
+echo "[xterm.js] Local TypeScript: $LOCAL_TSC_VERSION"
 
 # ---------------------------------------------------------------------------
 # Stamp version with current commit SHA
